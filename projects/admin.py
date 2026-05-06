@@ -1,3 +1,18 @@
 from django.contrib import admin
 
-# Register your models here.
+from .models import Project
+
+
+@admin.register(Project)
+class ProjectAdmin(admin.ModelAdmin):
+    list_display = ('id', 'name', 'owner', 'status', 'created_at')
+    list_filter = ('status', 'created_at')
+    search_fields = ('name', 'owner__email', 'owner__name', 'owner__surname')
+    readonly_fields = ('created_at',)
+
+    fieldsets = (
+        (None, {'fields': ('name', 'description', 'status')}),
+        ('Автор и участники', {'fields': ('owner', 'participants')}),
+        ('Ссылки', {'fields': ('github_url',)}),
+        ('Дата', {'fields': ('created_at',)}),
+    )
