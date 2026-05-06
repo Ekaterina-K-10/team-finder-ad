@@ -8,27 +8,27 @@ from .models import User
 
 
 class RegisterForm(forms.ModelForm):
-    password = forms.CharField(widget=forms.PasswordInput, label="Пароль")
+    password = forms.CharField(widget=forms.PasswordInput, label='Пароль')
 
     class Meta:
         model = User
-        fields = ["name", "surname", "email", "password"]
+        fields = ['name', 'surname', 'email', 'password']
 
 
 class LoginForm(forms.Form):
-    email = forms.EmailField(label="Email")
-    password = forms.CharField(widget=forms.PasswordInput, label="Пароль")
+    email = forms.EmailField(label='Email')
+    password = forms.CharField(widget=forms.PasswordInput, label='Пароль')
 
     def clean(self):
         cleaned_data = super().clean()
-        email = cleaned_data.get("email")
-        password = cleaned_data.get("password")
+        email = cleaned_data.get('email')
+        password = cleaned_data.get('password')
 
         if email and password:
             user = authenticate(username=email, password=password)
 
             if user is None:
-                raise forms.ValidationError("Неверный имейл или пароль")
+                raise forms.ValidationError('Неверный имейл или пароль')
 
             self.user = user
 
@@ -44,7 +44,7 @@ class EditProfileForm(forms.ModelForm):
 
     class Meta:
         model = User
-        fields = ["name", "surname", "avatar", "about", "phone", "github_url"]
+        fields = ['name', 'surname', 'avatar', 'about', 'phone', 'github_url']
         widgets = {
             'name': forms.TextInput(attrs={'class': 'form-control'}),
             'surname': forms.TextInput(attrs={'class': 'form-control'}),
@@ -54,7 +54,7 @@ class EditProfileForm(forms.ModelForm):
         }
 
     def clean_phone(self):
-        phone = self.cleaned_data.get("phone", "")
+        phone = self.cleaned_data.get('phone', '')
 
         if not phone:
             return None
@@ -64,25 +64,17 @@ class EditProfileForm(forms.ModelForm):
             digits = '7' + digits[1:]
         normalized_phone = '+' + digits
 
-        if not re.match(r"^\+7\d{10}$", normalized_phone):
+        if not re.match(r'^\+7\d{10}$', normalized_phone):
             raise forms.ValidationError(
-                "Телефон должен быть в формате 8XXXXXXXXXX или +7XXXXXXXXXX"
+                'Телефон должен быть в формате 8XXXXXXXXXX или +7XXXXXXXXXX'
             )
-
-        users = User.objects.filter(phone=normalized_phone)
-
-        if self.instance:
-            users = users.exclude(pk=self.instance.pk)
-
-        if users.exists():
-            raise forms.ValidationError("Этот номер телефона уже используется")
 
         return normalized_phone
 
     def clean_github_url(self):
-        url = self.cleaned_data.get("github_url")
-        if url and "github.com" not in url:
-            raise forms.ValidationError("Ссылка должна вести на GitHub")
+        url = self.cleaned_data.get('github_url')
+        if url and 'github.com' not in url:
+            raise forms.ValidationError('Ссылка должна вести на GitHub')
         return url
 
 

@@ -4,22 +4,27 @@
 избранное и участие в проектах.
 """
 
-from django.shortcuts import render, redirect, get_object_or_404
 from django.contrib.auth.decorators import login_required
-from django.http import JsonResponse
 from django.core.paginator import Paginator
-from .models import Project
+from django.http import JsonResponse
+from django.shortcuts import get_object_or_404, redirect, render
+
+from constants import PAGINATION_PAGE_SIZE
+
 from .forms import ProjectForm
+from .models import Project
 
 
 def project_list_view(request):
     """
     Главная страница со списком проектов.
-    Отображаются только открытые проекты, сортировка от новых к старым.
-    Пагинация: 12 проектов.
     """
-    projects_list = Project.objects.all().order_by('-created_at')
-    paginator = Paginator(projects_list, 12)
+    projects_list = (
+        Project.objects
+        .select_related('owner')
+        .prefetch_related('participants')
+    )
+    paginator = Paginator(projects_list, PAGINATION_PAGE_SIZE)
     page_number = request.GET.get('page')
     page_obj = paginator.get_page(page_number)
     return render(request, 'projects/project_list.html', {'page_obj': page_obj})
@@ -27,46 +32,58 @@ def project_list_view(request):
 
 def project_detail_view(request, project_id):
     """Страница детальной информации о проекте"""
-    project = get_object_or_404(Project, id=project_id)
+    project = get_object_or_404(
+        Project.objects.select_related('owner').prefetch_related('participants'),
+        id=project_id
+    )
     return render(request, 'projects/project-details.html', {'project': project})
 
 
 @login_required
 def create_project_view(request):
     """Создание нового проекта"""
-    if request.method == 'POST':
-        form = ProjectForm(request.POST)
-        if form.is_valid():
-            project = form.save(commit=False)
-            project.owner = request.user
-            project.save()
-            project.participants.add(request.user)
-            return redirect('projects:project_detail', project_id=project.id)
-    else:
+    if request.method != 'POST':
         form = ProjectForm()
-    return render(request, 'projects/create-project.html', {
-        'form': form,
-        'is_edit': False
-    })
+        return render(request, 'projects/create-project.html', {
+            'form': form,
+            'is_edit': False
+        })
+
+    form = ProjectForm(request.POST)
+    if not form.is_valid():
+        return render(request, 'projects/create-project.html', {
+            'form': form,
+            'is_edit': False
+        })
+
+    project = form.save(commit=False)
+    project.owner = request.user
+    project.save()
+    project.participants.add(request.user)
+    return redirect('projects:project_detail', project_id=project.id)
 
 
 @login_required
 def edit_project_view(request, project_id):
-    """Редактирвоание проекта владельцем"""
+    """Редактирование проекта владельцем"""
     project = get_object_or_404(Project, id=project_id, owner=request.user)
 
-    if request.method == 'POST':
-        form = ProjectForm(request.POST, instance=project)
-        if form.is_valid():
-            form.save()
-            return redirect('projects:project_detail', project_id=project.id)
-    else:
+    if request.method != 'POST':
         form = ProjectForm(instance=project)
+        return render(request, 'projects/create-project.html', {
+            'form': form,
+            'is_edit': True
+        })
 
-    return render(request, 'projects/create-project.html', {
-        'form': form,
-        'is_edit': True
-    })
+    form = ProjectForm(request.POST, instance=project)
+    if not form.is_valid():
+        return render(request, 'projects/create-project.html', {
+            'form': form,
+            'is_edit': True
+        })
+
+    form.save()
+    return redirect('projects:project_detail', project_id=project.id)
 
 
 @login_required
@@ -74,8 +91,8 @@ def complete_project_view(request, project_id):
     """Завершение проекта"""
     project = get_object_or_404(Project, id=project_id, owner=request.user)
 
-    if project.status == 'open':
-        project.status = 'closed'
+    if project.status == Project.Status.OPEN:
+        project.status = Project.Status.CLOSED
         project.save()
         return JsonResponse({'status': 'ok', 'project_status': 'closed'})
 
@@ -122,8 +139,12 @@ def toggle_participate_view(request, project_id):
 @login_required
 def favorite_projects_view(request):
     """Страница избранных проектов для авторизованных"""
-    projects = request.user.favorites.all().order_by('-created_at')
-    paginator = Paginator(projects, 12)
+    projects = (
+        request.user.favorites
+        .select_related('owner')
+        .prefetch_related('participants')
+    )
+    paginator = Paginator(projects, PAGINATION_PAGE_SIZE)
     page_number = request.GET.get('page')
     projects = paginator.get_page(page_number)
     return render(request, 'projects/favorite_projects.html', {'projects': projects})

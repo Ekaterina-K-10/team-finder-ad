@@ -6,3 +6,8 @@ exclude =
     __pycache__,
     migrations,
     settings.py
+
+# Настройка flake8-quotes для двойных кавычек
+inline-quotes = single
+docstring-quotes = double
+multiline-quotes = double

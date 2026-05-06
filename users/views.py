@@ -3,15 +3,22 @@
 Обрабатывают регистрацию, вход, профиль пользователя и смену пароля.
 """
 
-from django.shortcuts import render, redirect, get_object_or_404
-from django.contrib.auth import login, logout
+from django.contrib.auth import login, logout, update_session_auth_hash
 from django.contrib.auth.decorators import login_required
 from django.contrib.auth.forms import PasswordChangeForm
-from django.contrib.auth import update_session_auth_hash
 from django.core.paginator import Paginator
+from django.shortcuts import get_object_or_404, redirect, render
 
-from .forms import RegisterForm, LoginForm, EditProfileForm
+from constants import PAGINATION_PAGE_SIZE
+
+from .forms import EditProfileForm, LoginForm, RegisterForm
 from .models import User
+
+
+def paginate_queryset(queryset, page_number, page_size=PAGINATION_PAGE_SIZE):
+    """Универсальная функция пагинации"""
+    paginator = Paginator(queryset, page_size)
+    return paginator.get_page(page_number)
 
 
 def edit_profile_redirect(request):
@@ -22,28 +29,32 @@ def edit_profile_redirect(request):
 
 def register_view(request):
     """Регистрация нового пользователя"""
-    if request.method == 'POST':
-        form = RegisterForm(request.POST)
-        if form.is_valid():
-            user = form.save()
-            login(request, user)
-            return redirect('projects:project_list')
-    else:
+    if request.method != 'POST':
         form = RegisterForm()
-    return render(request, 'users/register.html', {'form': form})
+        return render(request, 'users/register.html', {'form': form})
+
+    form = RegisterForm(request.POST or None)
+    if not form.is_valid():
+        return render(request, 'users/register.html', {'form': form})
+
+    user = form.save()
+    login(request, user)
+    return redirect('projects:project_list')
 
 
 def login_view(request):
     """Авторизация пользователя"""
-    if request.method == 'POST':
-        form = LoginForm(request.POST)
-        if form.is_valid():
-            user = form.user
-            login(request, user)
-            return redirect('projects:project_list')
-    else:
+    if request.method != 'POST':
         form = LoginForm()
-    return render(request, 'users/login.html', {'form': form})
+        return render(request, 'users/login.html', {'form': form})
+
+    form = LoginForm(request.POST or None)
+    if not form.is_valid():
+        return render(request, 'users/login.html', {'form': form})
+
+    user = form.user
+    login(request, user)
+    return redirect('projects:project_list')
 
 
 def logout_view(request):
@@ -54,10 +65,14 @@ def logout_view(request):
 
 def user_detail_view(request, user_id):
     """Страница профиля пользователя"""
-    user_obj = get_object_or_404(User, id=user_id, is_active=True)
-    projects = user_obj.owned_projects.all().order_by('-created_at')
+    user = get_object_or_404(User, id=user_id, is_active=True)
+    projects = (
+        user.owned_projects
+        .select_related('owner')
+        .prefetch_related('participants')
+    )
     context = {
-        'user': user_obj,
+        'user': user,
         'projects': projects,
     }
     return render(request, 'users/user-details.html', context)
@@ -69,35 +84,36 @@ def edit_profile_view(request, user_id):
     if request.user.id != user_id:
         return redirect('users:user_detail', user_id=request.user.id)
 
-    user_obj = get_object_or_404(User, id=user_id)
+    user = get_object_or_404(User, id=user_id)
 
-    if request.method == 'POST':
-        form = EditProfileForm(request.POST, request.FILES, instance=user_obj)
-        if form.is_valid():
-            form.save()
-            return redirect('users:user_detail', user_id=user_obj.id)
-    else:
-        form = EditProfileForm(instance=user_obj)
+    if request.method != 'POST':
+        form = EditProfileForm(instance=user)
+        context = {'form': form, 'user': user}
+        return render(request, 'users/edit_profile.html', context)
 
-    context = {
-        'form': form,
-        'user': user_obj,
-    }
-    return render(request, 'users/edit_profile.html', context)
+    form = EditProfileForm(request.POST, request.FILES, instance=user)
+    if not form.is_valid():
+        context = {'form': form, 'user': user}
+        return render(request, 'users/edit_profile.html', context)
+
+    form.save()
+    return redirect('users:user_detail', user_id=user.id)
 
 
 @login_required
 def change_password_view(request):
     """Смена пароля"""
-    if request.method == 'POST':
-        form = PasswordChangeForm(request.user, request.POST)
-        if form.is_valid():
-            user = form.save()
-            update_session_auth_hash(request, user)
-            return redirect('users:user_detail', user_id=request.user.id)
-    else:
+    if request.method != 'POST':
         form = PasswordChangeForm(request.user)
-    return render(request, 'users/change_password.html', {'form': form})
+        return render(request, 'users/change_password.html', {'form': form})
+
+    form = PasswordChangeForm(request.user, request.POST)
+    if not form.is_valid():
+        return render(request, 'users/change_password.html', {'form': form})
+
+    user = form.save()
+    update_session_auth_hash(request, user)
+    return redirect('users:user_detail', user_id=request.user.id)
 
 
 def users_list(request):
@@ -105,10 +121,10 @@ def users_list(request):
     Список всех пользователей с фильтрацией.
 
     Доступные фильтры:
-    authors_of_favorites: авторы избранных проектов
-    authors_of_my_participated: авторы проектов, где я участвую
-    users_who_like_my_projects: пользователи, которым нравятся мои проекты
-    participants_of_my_projects: участники моих проектов
+        authors_of_favorites: авторы избранных проектов
+        authors_of_my_participated: авторы проектов, где я участвую
+        users_who_like_my_projects: пользователи, которым нравятся мои проекты
+        participants_of_my_projects: участники моих проектов
     """
     users_list = User.objects.filter(is_active=True).order_by('-id')
     active_filter = request.GET.get('filter')
@@ -143,9 +159,8 @@ def users_list(request):
             users_list = User.objects.filter(id__in=user_ids)
             filter_title = 'Участники моих проектов'
 
-    paginator = Paginator(users_list, 12)
-    page_number = request.GET.get('page')
-    participants = paginator.get_page(page_number)
+    page_number = request.GET.get('page', 1)
+    participants = paginate_queryset(users_list, page_number)
 
     context = {
         'participants': participants,
